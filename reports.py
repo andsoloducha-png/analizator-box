@@ -103,7 +103,7 @@ def report_package_type_dims_share(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def report_hourly_volume(df: pd.DataFrame) -> pd.DataFrame:
+def report_hourly_weight(df: pd.DataFrame) -> pd.DataFrame:
     """
     Alias dla starego GUI.
     """
@@ -142,6 +142,60 @@ def report_hourly_loop_nok_overflow(df: pd.DataFrame) -> pd.DataFrame:
     )
     return out
 
+
+
+def report_hourly_weight_measured(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Godzinowa jakość ważenia na podstawie kolumny 'Volume' (masa w gramach).
+    measured_items: Volume > 0
+    unmeasured_items: Volume is NaN lub <= 0
+    """
+    if "Volume" not in df.columns:
+        raise KeyError("Brak kolumny 'Volume' w danych.")
+
+    g = df.groupby("scan_hour", dropna=False)
+
+    out = g.agg(
+        avg_weight_g=("Volume", lambda s: s[s > 0].mean()),
+        total_items=("scan_hour", "size"),
+        measured_items=("Volume", lambda s: (s > 0).sum()),
+        unmeasured_items=("Volume", lambda s: (s.isna() | (s <= 0)).sum()),
+    ).reset_index()
+
+    out["pct_unmeasured"] = (out["unmeasured_items"] / out["total_items"] * 100.0).round(2)
+    out = out.sort_values("scan_hour").reset_index(drop=True)
+    return out
+
+
+def report_top5_weight_extremes(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Zwraca (top5_najciezsze, top5_najlzejsze) dla Volume > 0.
+    Kolumny: chunk, type, volume.
+    """
+    if "Volume" not in df.columns:
+        raise KeyError("Brak kolumny 'Volume' w danych.")
+    # używamy oryginalnych nazw, żeby działało na surowym df z load_xlsx
+    cols = ["Chunk Id", "Package type Barcodes", "Volume"]
+    for c in cols:
+        if c not in df.columns:
+            raise KeyError(f"Brak kolumny '{c}' w danych.")
+
+    sub = df.loc[df["Volume"] > 0, cols].copy()
+
+    sub = sub.rename(columns={
+        "Chunk Id": "chunk",
+        "Package type Barcodes": "type",
+        "Volume": "weight_g",
+    })
+
+    # zabezpieczenie na brak danych
+    if sub.empty:
+        empty = pd.DataFrame(columns=["chunk", "type", "weight_g"])
+        return empty, empty
+
+    top_heavy = sub.sort_values("weight_g", ascending=False).head(5).reset_index(drop=True)
+    top_light = sub.sort_values("weight_g", ascending=True).head(5).reset_index(drop=True)
+    return top_heavy, top_light
 
 def report_hourly_dims_measured(df: pd.DataFrame) -> pd.DataFrame:
     g = df.groupby("scan_hour", dropna=False)
